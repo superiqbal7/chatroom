@@ -11,8 +11,8 @@ function App() {
     <div className="App">
       <Router>
         <Switch>
-          <Route path="/" exact component={CreateRoom} />
-          <Route path="/room/:roomID" component={ChatRoom} />
+          <Route path="/room/" exact component={CreateRoom} />
+          <Route path="/" component={ChatRoom} />
         </Switch>
       </Router>
     </div>

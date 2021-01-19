@@ -1,6 +1,4 @@
-import { AnyARecord } from "dns";
 import React, { useEffect, useRef, useState } from "react";
-import { io } from "socket.io-client";
 import styled from "styled-components";
 import { db } from "../firebase";
 
@@ -73,12 +71,11 @@ const PartnerMessage = styled.div`
 `;
 
 const ChatRoom = (props: any) => {
-  const peerRef: any = useRef();
+
   const sendChannel: any = useRef();
   const [text, setText] = useState("");
+  let [roomId, setRoomId]: any = useState("");
   const [messages, setMessages]: any = useState([]);
-  const socketRef: any = useRef();
-  const otherUser: any = useRef();
 
   const configuration = {
   iceServers: [
@@ -93,27 +90,6 @@ const ChatRoom = (props: any) => {
   };
 
   let peerConnection:any = null;
-  let roomId: any = null;
-
-  useEffect(() => {
-    socketRef.current = io("http://localhost:8000");
-    socketRef.current.emit("join room", props.match.params.roomID);
-
-    socketRef.current.on("other user", (userID: any) => {
-      callUser(userID);
-      otherUser.current = userID;
-    });
-
-    socketRef.current.on("user joined", (userID: any) => {
-      otherUser.current = userID;
-    });
-
-    socketRef.current.on("offer", handleOffer);
-
-    socketRef.current.on("answer", handleAnswer);
-
-    socketRef.current.on("ice-candidate", handleNewICECandidateMsg);
-  }, []);
 
   //create a room
   async function createRoom() {
@@ -123,6 +99,8 @@ const ChatRoom = (props: any) => {
   console.log('Create PeerConnection with configuration: ', configuration);
   //create peer connection
   peerConnection = new RTCPeerConnection(configuration);
+
+  registerPeerConnectionListeners();
 
   //create data channel
   sendChannel.current = peerConnection.createDataChannel("sendChannel");
@@ -158,8 +136,6 @@ const ChatRoom = (props: any) => {
   await roomRef.set(roomWithOffer);
   roomId = roomRef.id;
   console.log(`New room created with SDP offer. Room ID: ${roomRef.id}`);
-  // document.querySelector(
-  //     '#currentRoom').innerText = `Current room is ${roomRef.id} - You are the caller!`;
   // Code for creating a room above
 
   // Listening for remote session description below
@@ -197,6 +173,8 @@ async function joinRoomById() {
   if (roomSnapshot.exists) {
     console.log('Create PeerConnection with configuration: ', configuration);
     peerConnection = new RTCPeerConnection(configuration);
+
+    registerPeerConnectionListeners();
 
     peerConnection.ondatachannel = (event: any) => {
       sendChannel.current = event.channel;
@@ -246,8 +224,6 @@ async function joinRoomById() {
   }
 }
 
-
-
 function registerPeerConnectionListeners() {
   peerConnection.addEventListener('icegatheringstatechange', () => {
     console.log(
@@ -268,53 +244,6 @@ function registerPeerConnectionListeners() {
   });
 }
 
-//----------------------------------------------------------------
-
-  function callUser(userID: string) {
-    peerRef.current = createPeer(userID);
-
-    sendChannel.current = peerRef.current.createDataChannel("sendChannel");
-    sendChannel.current.onmessage = handleReceiveMessage;
-  }
-
-  function createPeer(userID?: string) {
-
-    const peerConnection = new RTCPeerConnection(configuration);
-
-    peerConnection.onicecandidate = handleICECandidateEvent;
-    peerConnection.onnegotiationneeded = () =>
-      handleNegotiationNeededEvent(userID);
-
-    return peerConnection;
-  }
-
-  function handleICECandidateEvent(e: any) {
-    if (e.candidate) {
-      const payload = {
-        target: otherUser.current,
-        candidate: e.candidate,
-      };
-      socketRef.current.emit("ice-candidate", payload);
-    }
-  }
-
-  function handleNegotiationNeededEvent(userID: any) {
-    peerRef.current
-      .createOffer()
-      .then((offer: any) => {
-        return peerRef.current.setLocalDescription(offer);
-      })
-      .then(() => {
-        const payload = {
-          target: userID,
-          caller: socketRef.current.id,
-          sdp: peerRef.current.localDescription,
-        };
-        socketRef.current.emit("offer", payload);
-      })
-      .catch((e: any) => console.log(e));
-  }
-
   function handleReceiveMessage(e: any) {
     setMessages(() => [
       ...messages,
@@ -323,53 +252,6 @@ function registerPeerConnectionListeners() {
         value: e.data,
       },
     ]);
-  }
-
-  function handleOffer(incoming: any) {
-    peerRef.current = createPeer();
-
-    peerRef.current.ondatachannel = (event: any) => {
-      sendChannel.current = event.channel;
-      sendChannel.current.onmessage = handleReceiveMessage;
-    };
-
-    const desc = new RTCSessionDescription(incoming.sdp);
-    peerRef.current
-      .setRemoteDescription(desc)
-      .then(() => {})
-      .then(() => {
-        return peerRef.current.createAnswer();
-      })
-      .then((answer: any) => {
-        return peerRef.current.setLocalDescription(answer);
-      })
-      .then(() => {
-        const payload = {
-          target: incoming.caller,
-          caller: socketRef.current.id,
-          sdp: peerRef.current.localDescription,
-        };
-        socketRef.current.emit("answer", payload);
-      });
-  }
-
-  function handleAnswer(message: any) {
-    const desc = new RTCSessionDescription(message.sdp);
-    peerRef.current
-      .setRemoteDescription(desc)
-      .catch((e: any) => console.log(e));
-  }
-
-  function handleNewICECandidateMsg(incoming: any) {
-    const candidate = new RTCIceCandidate(incoming);
-
-    peerRef.current
-      .addIceCandidate(candidate)
-      .catch((e: any) => console.log(e));
-  }
-
-  function handleChange(e: any) {
-    setText(e.target.value);
   }
 
   //send messages
@@ -405,12 +287,15 @@ function registerPeerConnectionListeners() {
     <Container>
       <div>
         <button onClick={createRoom}>Create Room</button>
-        <button onClick={joinRoomById}>Join Room</button>
+        <div>
+          <input value={roomId} onChange={event => setRoomId(event.target.value)} placeholder="room id"></input>
+          <button onClick={joinRoomById}>Join Room</button>
+        </div>
       </div>
       <Messages>{messages.map(renderMessage)}</Messages>
       <MessageBox
         value={text}
-        onChange={handleChange}
+        onChange={event => setText(event.target.value)}
         placeholder="Say something....."
       />
       <Button onClick={sendMessage}>Send..</Button>
