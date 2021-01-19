@@ -1,6 +1,8 @@
+import { AnyARecord } from "dns";
 import React, { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import styled from "styled-components";
+import { db } from "../firebase";
 
 const Container = styled.div`
   height: 100vh;
@@ -78,6 +80,21 @@ const ChatRoom = (props: any) => {
   const socketRef: any = useRef();
   const otherUser: any = useRef();
 
+  const configuration = {
+  iceServers: [
+      {
+        urls: [
+          'stun:stun1.l.google.com:19302',
+          'stun:stun2.l.google.com:19302',
+        ],
+      },
+    ],
+    iceCandidatePoolSize: 10,
+  };
+
+  let peerConnection:any = null;
+  let roomId: any = null;
+
   useEffect(() => {
     socketRef.current = io("http://localhost:8000");
     socketRef.current.emit("join room", props.match.params.roomID);
@@ -98,6 +115,161 @@ const ChatRoom = (props: any) => {
     socketRef.current.on("ice-candidate", handleNewICECandidateMsg);
   }, []);
 
+  //create a room
+  async function createRoom() {
+
+  const roomRef = await db.collection('rooms').doc();
+
+  console.log('Create PeerConnection with configuration: ', configuration);
+  //create peer connection
+  peerConnection = new RTCPeerConnection(configuration);
+
+  //create data channel
+  sendChannel.current = peerConnection.createDataChannel("sendChannel");
+
+  //registerPeerConnectionListeners();
+
+  // Code for collecting ICE candidates below
+  const callerCandidatesCollection = roomRef.collection('callerCandidates');
+
+  peerConnection.addEventListener('icecandidate', (event: any) => {
+    if (!event.candidate) {
+      console.log('Got final candidate!');
+      return;
+    }
+    console.log('Got candidate: ', event.candidate);
+
+    //adding icecandidate to db collection
+    callerCandidatesCollection.add(event.candidate.toJSON());
+  });
+  // Code for collecting ICE candidates above
+
+  // Code for creating a room below
+  const offer = await peerConnection.createOffer();
+  await peerConnection.setLocalDescription(offer);
+  console.log('Created offer:', offer);
+
+  const roomWithOffer = {
+    'offer': {
+      type: offer.type,
+      sdp: offer.sdp,
+    },
+  };
+  await roomRef.set(roomWithOffer);
+  roomId = roomRef.id;
+  console.log(`New room created with SDP offer. Room ID: ${roomRef.id}`);
+  // document.querySelector(
+  //     '#currentRoom').innerText = `Current room is ${roomRef.id} - You are the caller!`;
+  // Code for creating a room above
+
+  // Listening for remote session description below
+  roomRef.onSnapshot(async (snapshot: any) => {
+    const data = snapshot.data();
+    if (!peerConnection.currentRemoteDescription && data && data.answer) {
+      console.log('Got remote description: ', data.answer);
+      const rtcSessionDescription = new RTCSessionDescription(data.answer);
+      await peerConnection.setRemoteDescription(rtcSessionDescription);
+    }
+  });
+  // Listening for remote session description above
+
+  // Listen for remote ICE candidates below
+  roomRef.collection('calleeCandidates').onSnapshot((snapshot: any) => {
+    snapshot.docChanges().forEach(async (change: any) => {
+      if (change.type === 'added') {
+        let data = change.doc.data();
+        console.log(`Got new remote ICE candidate: ${JSON.stringify(data)}`);
+        await peerConnection.addIceCandidate(new RTCIceCandidate(data));
+      }
+    });
+  });
+  // Listen for remote ICE candidates above
+
+  //handle incoming messages
+  sendChannel.current.onmessage = handleReceiveMessage;
+}
+
+async function joinRoomById() {
+  const roomRef: any = db.collection('rooms').doc(`${roomId}`);
+  const roomSnapshot: any = await roomRef.get();
+  console.log('Got room:', roomSnapshot.exists);
+
+  if (roomSnapshot.exists) {
+    console.log('Create PeerConnection with configuration: ', configuration);
+    peerConnection = new RTCPeerConnection(configuration);
+
+    peerConnection.ondatachannel = (event: any) => {
+      sendChannel.current = event.channel;
+      sendChannel.current.onmessage = handleReceiveMessage;
+    }
+
+    // Code for collecting ICE candidates below
+    const calleeCandidatesCollection = roomRef.collection('calleeCandidates');
+    peerConnection.addEventListener('icecandidate', (event: any) => {
+      if (!event.candidate) {
+        console.log('Got final candidate!');
+        return;
+      }
+      console.log('Got candidate: ', event.candidate);
+      calleeCandidatesCollection.add(event.candidate.toJSON());
+    });
+    // Code for collecting ICE candidates above
+
+    // Code for creating SDP answer below
+    const offer = roomSnapshot.data().offer;
+    console.log('Got offer:', offer);
+    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer = await peerConnection.createAnswer();
+    console.log('Created answer:', answer);
+    await peerConnection.setLocalDescription(answer);
+
+    const roomWithAnswer = {
+      answer: {
+        type: answer.type,
+        sdp: answer.sdp,
+      },
+    };
+    await roomRef.update(roomWithAnswer);
+    // Code for creating SDP answer above
+
+    // Listening for remote ICE candidates below
+    roomRef.collection('callerCandidates').onSnapshot((snapshot: any) => {
+      snapshot.docChanges().forEach(async (change: any) => {
+        if (change.type === 'added') {
+          let data = change.doc.data();
+          console.log(`Got new remote ICE candidate: ${JSON.stringify(data)}`);
+          await peerConnection.addIceCandidate(new RTCIceCandidate(data));
+        }
+      });
+    });
+    // Listening for remote ICE candidates above
+  }
+}
+
+
+
+function registerPeerConnectionListeners() {
+  peerConnection.addEventListener('icegatheringstatechange', () => {
+    console.log(
+        `ICE gathering state changed: ${peerConnection.iceGatheringState}`);
+  });
+
+  peerConnection.addEventListener('connectionstatechange', () => {
+    console.log(`Connection state change: ${peerConnection.connectionState}`);
+  });
+
+  peerConnection.addEventListener('signalingstatechange', () => {
+    console.log(`Signaling state change: ${peerConnection.signalingState}`);
+  });
+
+  peerConnection.addEventListener('iceconnectionstatechange ', () => {
+    console.log(
+        `ICE connection state change: ${peerConnection.iceConnectionState}`);
+  });
+}
+
+//----------------------------------------------------------------
+
   function callUser(userID: string) {
     peerRef.current = createPeer(userID);
 
@@ -106,9 +278,7 @@ const ChatRoom = (props: any) => {
   }
 
   function createPeer(userID?: string) {
-    const configuration = {
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-    };
+
     const peerConnection = new RTCPeerConnection(configuration);
 
     peerConnection.onicecandidate = handleICECandidateEvent;
@@ -146,8 +316,8 @@ const ChatRoom = (props: any) => {
   }
 
   function handleReceiveMessage(e: any) {
-    setMessages((message: []) => [
-      ...message,
+    setMessages(() => [
+      ...messages,
       {
         yours: false,
         value: e.data,
@@ -202,6 +372,7 @@ const ChatRoom = (props: any) => {
     setText(e.target.value);
   }
 
+  //send messages
   function sendMessage() {
     sendChannel.current.send(text);
     setMessages((messages: any) => [
@@ -232,6 +403,10 @@ const ChatRoom = (props: any) => {
 
   return (
     <Container>
+      <div>
+        <button onClick={createRoom}>Create Room</button>
+        <button onClick={joinRoomById}>Join Room</button>
+      </div>
       <Messages>{messages.map(renderMessage)}</Messages>
       <MessageBox
         value={text}
