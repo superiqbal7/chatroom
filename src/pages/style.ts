@@ -44,7 +44,7 @@ export const MyRow = styled.div`
 
 export const MyMessage = styled.div`
   width: 45%;
-  background-color: blue;
+  background-color: #00929F;
   color: white;
   padding: 10px;
   margin-right: 5px;
@@ -59,7 +59,7 @@ export const PartnerRow = styled(MyRow)`
 
 export const PartnerMessage = styled.div`
   width: 45%;
-  background-color: grey;
+  background-color: #2C3435;
   color: white;
   border: 1px solid lightgray;
   padding: 10px;
