@@ -33,11 +33,8 @@ const ChatRoom = (props: any) => {
         urls: [
           "stun:stun1.l.google.com:19302",
           "stun:stun2.l.google.com:19302",
-          "stun:stun2.l.google.com:19302",
-          "stun:stun3.l.google.com:19302",
-          "stun:stun4.l.google.com:19302",
         ],
-      }
+      },
     ],
     iceCandidatePoolSize: 10,
   };
@@ -218,7 +215,7 @@ const ChatRoom = (props: any) => {
         value: e.data,
       },
     ]);
-    console.log("messages"+messages);
+    console.log("messages" + messages);
   }
 
   //send messages and save on message state
