@@ -37,12 +37,7 @@ const ChatRoom = (props: any) => {
           "stun:stun3.l.google.com:19302",
           "stun:stun4.l.google.com:19302",
         ],
-      },
-      {
-        urls: ["turn:numb.viagenie.ca"],
-        credential: "muazkh",
-        username: "webrtc@live.com",
-      },
+      }
     ],
     iceCandidatePoolSize: 10,
   };
