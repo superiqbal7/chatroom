@@ -193,19 +193,20 @@ function registerPeerConnectionListeners() {
 
   //receive messasge and save on message state
   function handleReceiveMessage(e: any) {
-    setMessages(() => [
+    setMessages((messages: Imessage[]) => [
       ...messages,
       {
         yours: false,
         value: e.data,
       },
     ]);
+    console.log("messages"+messages);
   }
 
   //send messages and save on message state
   function sendMessage() {
     sendChannel.current.send(text);
-    setMessages((messages: any) => [
+    setMessages((messages: Imessage[]) => [
       ...messages,
       {
         yours: true,
@@ -215,7 +216,7 @@ function registerPeerConnectionListeners() {
     setText("");
   }
 
-  function renderMessage(message: any, index: any) {
+  function renderMessage(message: Imessage, index: any) {
     if (message.yours) {
       return (
         <MyRow key={index}>
