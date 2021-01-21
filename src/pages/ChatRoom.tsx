@@ -1,100 +1,33 @@
 import React, { useEffect, useRef, useState } from "react";
-import styled from "styled-components";
 import { db } from "../firebase";
+import { Iconfiguration, Imessage } from "../interface/chatroom";
+import {Container, Messages, MessageBox, Button, MyRow, MyMessage, PartnerRow, PartnerMessage, RoomStatus, RoomStatusText} from './style';
 
-const Container = styled.div`
-  height: 100vh;
-  width: 50%;
-  margin: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-`;
-
-const Messages = styled.div`
-  width: 100%;
-  height: 60%;
-  border: 1px solid black;
-  margin-top: 10px;
-  overflow: scroll;
-`;
-
-const MessageBox = styled.textarea`
-  width: 100%;
-  height: 30%;
-`;
-
-const Button = styled.div`
-  width: 50%;
-  border: 1px solid black;
-  margin-top: 15px;
-  height: 5%;
-  border-radius: 5px;
-  cursor: pointer;
-  background-color: black;
-  color: white;
-  font-size: 18px;
-`;
-
-const MyRow = styled.div`
-  width: 100%;
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 10px;
-`;
-
-const MyMessage = styled.div`
-  width: 45%;
-  background-color: blue;
-  color: white;
-  padding: 10px;
-  margin-right: 5px;
-  text-align: center;
-  border-top-right-radius: 10%;
-  border-bottom-right-radius: 10%;
-`;
-
-const PartnerRow = styled(MyRow)`
-  justify-content: flex-start;
-`;
-
-const PartnerMessage = styled.div`
-  width: 45%;
-  background-color: grey;
-  color: white;
-  border: 1px solid lightgray;
-  padding: 10px;
-  margin-left: 5px;
-  text-align: center;
-  border-top-left-radius: 10%;
-  border-bottom-left-radius: 10%;
-`;
 
 const ChatRoom = (props: any) => {
 
-  const sendChannel: any = useRef();
-  const [text, setText] = useState("");
-  let [roomId, setRoomId]: any = useState("");
-  const [messages, setMessages]: any = useState([]);
+  const sendChannel: any = useRef<RTCDataChannel>();
+  const [text, setText] = useState<string>("");
+  const [roomId, setRoomId] = useState<string>("");
+  const [messages, setMessages] = useState<Imessage[]>([]);
+  const [roomCreated, setRoomCreated] = useState<Boolean>(false);
+  const [connectionStatus, setconnectionStatus] = useState<string>("Not Connected");
+  const [joinRoomStatus, setJoinRoomStatus] = useState<Boolean>(false)
+  
+  let peerConnection:RTCPeerConnection;
 
-  const configuration = {
-  iceServers: [
-      {
-        urls: [
-          'stun:stun1.l.google.com:19302',
-          'stun:stun2.l.google.com:19302',
-        ],
-      },
-      {
-        urls: "turn:numb.viagenie.ca",
-        credential: "muazkh",
-        username:"webrtc@live.com"
-      }
-    ],
+  const configuration: Iconfiguration = {
+    iceServers: [
+        {
+          urls: [
+            'stun:stun1.l.google.com:19302',
+            'stun:stun2.l.google.com:19302',
+          ],
+        }
+      ],
     iceCandidatePoolSize: 10,
   };
 
-  let peerConnection:any = null;
 
   //create a room
   async function createRoom() {
@@ -109,6 +42,7 @@ const ChatRoom = (props: any) => {
 
   //create data channel
   sendChannel.current = peerConnection.createDataChannel("sendChannel");
+  console.log("created Datachannel"+sendChannel.current);
 
   //registerPeerConnectionListeners();
 
@@ -139,8 +73,14 @@ const ChatRoom = (props: any) => {
     },
   };
   await roomRef.set(roomWithOffer);
-  roomId = roomRef.id;
-  console.log(`New room created with SDP offer. Room ID: ${roomRef.id}`);
+
+  //set room id
+  if(roomRef){
+    setRoomId(roomRef.id);
+    setRoomCreated(true);
+    console.log(`New room created with SDP offer. Room ID: ${roomRef.id}`);
+  }
+  
   // Code for creating a room above
 
   // Listening for remote session description below
@@ -176,6 +116,7 @@ async function joinRoomById() {
   console.log('Got room:', roomSnapshot.exists);
 
   if (roomSnapshot.exists) {
+    setJoinRoomStatus(true);
     console.log('Create PeerConnection with configuration: ', configuration);
     peerConnection = new RTCPeerConnection(configuration);
 
@@ -236,6 +177,7 @@ function registerPeerConnectionListeners() {
   });
 
   peerConnection.addEventListener('connectionstatechange', () => {
+    setconnectionStatus(peerConnection.connectionState);
     console.log(`Connection state change: ${peerConnection.connectionState}`);
   });
 
@@ -249,6 +191,7 @@ function registerPeerConnectionListeners() {
   });
 }
 
+  //receive messasge and save on message state
   function handleReceiveMessage(e: any) {
     setMessages(() => [
       ...messages,
@@ -259,7 +202,7 @@ function registerPeerConnectionListeners() {
     ]);
   }
 
-  //send messages
+  //send messages and save on message state
   function sendMessage() {
     sendChannel.current.send(text);
     setMessages((messages: any) => [
@@ -297,13 +240,28 @@ function registerPeerConnectionListeners() {
           <button onClick={joinRoomById}>Join Room</button>
         </div>
       </div>
+      <div>
+        {roomCreated ? (
+            <RoomStatus className = "roomStatus">
+              <RoomStatusText>New Room Created with id: {roomId}</RoomStatusText>
+            </RoomStatus>
+        ): ("")}
+        {joinRoomStatus ? (
+            <RoomStatus className = "roomStatus">
+              <RoomStatusText>Joined Room id: {roomId}</RoomStatusText>
+            </RoomStatus>
+        ): ("")}
+      </div>
+      <RoomStatus>
+        <RoomStatusText>Connection Status: {connectionStatus}</RoomStatusText>
+      </RoomStatus>
       <Messages>{messages.map(renderMessage)}</Messages>
       <MessageBox
         value={text}
         onChange={event => setText(event.target.value)}
         placeholder="Say something....."
       />
-      <Button onClick={sendMessage}>Send..</Button>
+      <Button onClick={sendMessage} disabled={connectionStatus !== "connected"}>Send..</Button>
     </Container>
   );
 };
